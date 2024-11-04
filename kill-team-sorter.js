@@ -1,40 +1,15 @@
 // ==UserScript==
-// @name         Warhammer Kill Team Rules Sorter
-// @namespace    https://greasyfork.org/en/users/Kardiff
-// @version      1.0.0
-// @description  Adds sorting functionality to Warhammer Kill Team rules page. Sort alphabetically or by update date, with US date format display.
-// @author       Kardiff
-// @match        https://www.warhammer-community.com/*/downloads/kill-team/
-// @grant        GM_log
-// @license      MIT
-// @run-at       document-idle
-// @supportURL   https://github.com/Kardiff-Kill-Team/page_sorter/issues
-// @homepageURL  https://github.com/Kardiff-Kill-Team/page_sorter
+// @name Warhammer Kill Team Rules Sorter
+// @namespace https://greasyfork.org/en/users/Kardiff
+// @version 1.1.1
+// @description Fan-made sorting tool for Kill Team rules page. Adds alphabetical and date sorting functionality with configurable date formats. This is an unofficial tool not affiliated with, endorsed, or sponsored by Games Workshop. Warhammer Kill Team is a trademark of Games Workshop Limited.
+// @author Kardiff
+// @match https://www.warhammer-community.com/*/downloads/kill-team/
+// @license MIT
+// @run-at document-idle
+// @supportURL https://github.com/Kardiff-Kill-Team/page_sorter/issues
+// @homepageURL https://github.com/Kardiff-Kill-Team/page_sorter
 // ==/UserScript==
-
-/*
-MIT License
-
-Copyright (c) 2024 Kardiff
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-*/
 
 (function() {
     'use strict';
@@ -67,15 +42,35 @@ SOFTWARE.
         }
     `;
 
+    // Date format configurations
+    const dateFormats = {
+        US: {
+            label: 'US (MM/DD/YYYY)',
+            format: (day, month, year) => `${month}/${day}/${year}`,
+            parse: (text) => {
+                const [month, day, year] = text.split('/');
+                return new Date(`${year}-${month}-${day}`);
+            }
+        },
+        EU: {
+            label: 'EU (DD/MM/YYYY)',
+            format: (day, month, year) => `${day}/${month}/${year}`,
+            parse: (text) => {
+                const [day, month, year] = text.split('/');
+                return new Date(`${year}-${month}-${day}`);
+            }
+        },
+        ISO: {
+            label: 'ISO (YYYY-MM-DD)',
+            format: (day, month, year) => `${year}-${month}-${day}`,
+            parse: (text) => new Date(text)
+        }
+    };
+
     // Add styles
     const styleSheet = document.createElement("style");
     styleSheet.textContent = styles;
     document.head.appendChild(styleSheet);
-
-    function formatDateToUS(dateText) {
-        const [day, month, year] = dateText.split('/');
-        return `${month}/${day}/${year}`;
-    }
 
     function initializeSorter(container) {
         // Create control buttons
@@ -90,17 +85,55 @@ SOFTWARE.
         dateButton.textContent = 'Sort by Latest Update';
         dateButton.className = 'sort-button';
 
+        const formatButton = document.createElement('button');
+        formatButton.className = 'sort-button';
+        let currentFormat = 'US'; // Default format
+
+        // Store original dates to prevent conversion errors
+        const originalDates = new Map();
+
+        function updateFormatButtonText() {
+            formatButton.textContent = `Format: ${dateFormats[currentFormat].label}`;
+        }
+        updateFormatButtonText();
+
         controlsDiv.appendChild(alphabeticalButton);
         controlsDiv.appendChild(dateButton);
+        controlsDiv.appendChild(formatButton);
         container.parentElement.insertBefore(controlsDiv, container);
 
-        // Initial date conversion
+        // Store original dates when first encountering them
         container.querySelectorAll('.shared-downloadCard').forEach(card => {
             const dateSpan = card.querySelector('.border-t span.ml-5');
-            if (dateSpan) {
-                dateSpan.textContent = formatDateToUS(dateSpan.textContent.trim());
+            if (dateSpan && !originalDates.has(card)) {
+                const dateParts = dateSpan.textContent.trim().split('/');
+                // Store as day, month, year
+                originalDates.set(card, {
+                    day: dateParts[0],
+                    month: dateParts[1],
+                    year: dateParts[2]
+                });
             }
         });
+
+        function updateAllDates() {
+            container.querySelectorAll('.shared-downloadCard').forEach(card => {
+                const dateSpan = card.querySelector('.border-t span.ml-5');
+                if (dateSpan && originalDates.has(card)) {
+                    const { day, month, year } = originalDates.get(card);
+                    if (currentFormat === 'ISO') {
+                        dateSpan.textContent = dateFormats.ISO.format(day, month, year);
+                    } else if (currentFormat === 'US') {
+                        dateSpan.textContent = dateFormats.US.format(day, month, year);
+                    } else {
+                        dateSpan.textContent = dateFormats.EU.format(day, month, year);
+                    }
+                }
+            });
+        }
+
+        // Initial date conversion
+        updateAllDates();
 
         function getTeamBoxes() {
             return Array.from(container.querySelectorAll('.shared-downloadCard'));
@@ -112,9 +145,9 @@ SOFTWARE.
         }
 
         function getLastUpdated(box) {
-            const dateText = box.querySelector('.border-t span.ml-5');
-            if (dateText) {
-                const [month, day, year] = dateText.textContent.split('/');
+            if (originalDates.has(box)) {
+                const { day, month, year } = originalDates.get(box);
+                // Always use ISO format for date comparison
                 return new Date(`${year}-${month}-${day}`);
             }
             return new Date(0);
@@ -124,10 +157,7 @@ SOFTWARE.
             const boxes = getTeamBoxes();
             if (boxes.length === 0) return;
 
-            // Sort boxes
             const sortedBoxes = [...boxes].sort(sortFunction);
-            
-            // Clear and reappend
             sortedBoxes.forEach(box => container.appendChild(box));
         }
 
@@ -138,16 +168,20 @@ SOFTWARE.
         function sortByDate() {
             sortBoxes((a, b) => {
                 const dateCompare = getLastUpdated(b) - getLastUpdated(a);
-                if (dateCompare === 0) {
-                    // If dates are equal, sort alphabetically
-                    return getTeamName(a).localeCompare(getTeamName(b));
-                }
-                return dateCompare;
+                return dateCompare === 0 ? getTeamName(a).localeCompare(getTeamName(b)) : dateCompare;
             });
         }
 
         alphabeticalButton.addEventListener('click', sortAlphabetically);
         dateButton.addEventListener('click', sortByDate);
+        formatButton.addEventListener('click', () => {
+            // Cycle through formats: US -> EU -> ISO -> US
+            const formats = Object.keys(dateFormats);
+            const currentIndex = formats.indexOf(currentFormat);
+            currentFormat = formats[(currentIndex + 1) % formats.length];
+            updateFormatButtonText();
+            updateAllDates();
+        });
 
         // Initial sort
         setTimeout(sortAlphabetically, 1000);
